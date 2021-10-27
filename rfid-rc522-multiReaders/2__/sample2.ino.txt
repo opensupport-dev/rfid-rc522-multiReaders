@@ -1,0 +1,190 @@
+///////////////////////////////////////////////////////
+link2:
+=> https://www.arduinoplatform.com/rfid-door-lock-with-multiple-rfid-readers-for-arduino/
+
+/**
+* This codes enables you to read multiple rfid readers to
+* turn a LED on. If both readers detect the right tag 
+* the two leds will light up. 
+*
+* http://www.arduinoplatform.com
+*/
+
+#include <SPI.h>
+// Download and install from https://github.com/miguelbalboa/rfid
+#include <MFRC522.h>
+
+// CONSTANTS
+// The number of RFID readers
+const byte numReaders = 2;
+// Each reader has a unique Slave Select pin
+const byte ssPins[] = {2, 3};
+// They'll share the same reset pin
+const byte resetPin = 8;
+// The correct IDs should be changed by you!!!
+// The sequence of NFC tag IDs required to unlock the Solenoid Lock
+const String correctIDs[] = {"3944c98" , "79404498"};
+// Pins that are connected to the LEDs
+int pin_LED[] = {5, 6};
+int pinRFID = 7;
+int lockpin = A0;
+
+// GLOBALS
+// Initialise an array of MFRC522 instances representing each reader
+MFRC522 mfrc522[numReaders];
+// The tag IDs currently detected by each reader
+String currentIDs[numReaders];
+
+
+/**
+   Initialisation
+*/
+void setup() {
+
+#ifdef DEBUG
+  // Initialise serial communications channel with the PC
+  Serial.begin(9600);
+  Serial.println(F("Serial communication started"));
+#endif
+
+
+  // set all LED pins to an output mode
+  pinMode(pinRFID, OUTPUT);
+  pinMode(lockpin, OUTPUT);
+  for (int y = 0; y < numReaders; y++) {
+    pinMode(pin_LED[y], OUTPUT);
+  }
+
+  // Initialise the SPI bus
+  SPI.begin();
+
+  for (uint8_t i = 0; i < numReaders; i++) { // Initialise the reader // Note that SPI pins on the reader must always be connected to certain // Arduino pins (on an Uno, MOSI=> pin11, MISO=> pin12, SCK=>pin13)
+    // The Slave Select (SS) pin and reset pin can be assigned to any pin
+    mfrc522[i].PCD_Init(ssPins[i], resetPin);
+
+    // Set the gain to max - not sure this makes any difference...
+    // mfrc522[i].PCD_SetAntennaGain(MFRC522::PCD_RxGain::RxGain_max);
+
+#ifdef DEBUG
+    // Dump some debug information to the serial monitor
+    Serial.print(F("Reader #"));
+    Serial.print(i);
+    Serial.print(F(" initialised on pin "));
+    Serial.print(String(ssPins[i]));
+    Serial.print(F(". Antenna strength: "));
+    Serial.print(mfrc522[i].PCD_GetAntennaGain());
+    Serial.print(F(". Version : "));
+    mfrc522[i].PCD_DumpVersionToSerial();
+#endif
+
+    // Slight delay before activating next reader
+    delay(100);
+  }
+
+#ifdef DEBUG
+  Serial.println(F("--- END SETUP ---"));
+#endif
+}
+
+/**
+   Main loop
+*/
+void loop() {
+
+  // Assume that the rfids tags are at the right readers
+  boolean rfidSolved = true;
+
+  // Assume that the tags have not changed since last reading
+  boolean changedValue = false;
+
+  // Loop through each reader
+  for (uint8_t i = 0; i < numReaders; i++) {
+
+    // Initialise the sensor
+    mfrc522[i].PCD_Init();
+
+    // String to hold the ID detected by each sensor
+    String readRFID = "";
+
+    // If the sensor detects a tag and is able to read it
+    if (mfrc522[i].PICC_IsNewCardPresent() && mfrc522[i].PICC_ReadCardSerial()) {
+      // Extract the ID from the tag
+      readRFID = dump_byte_array(mfrc522[i].uid.uidByte, mfrc522[i].uid.size);
+    }
+
+    // If the current reading is different from the last known reading
+    if (readRFID != currentIDs[i]) {
+      // Set the flag to show that the rfid state has changed
+      changedValue = true;
+      // Update the stored value for this sensor
+      currentIDs[i] = readRFID;
+    }
+
+    // If the reading fails to match the correct ID for this sensor
+    if (currentIDs[i] != correctIDs[i]) {
+      digitalWrite(pin_LED[i], LOW);
+      digitalWrite(pinRFID, LOW);
+      digitalWrite(lockpin, HIGH);
+      // The tags are not placed correct.
+      rfidSolved = false;
+    }
+
+    // If the reading is correct with corresponding ID
+    if (currentIDs[i] == correctIDs[i]) {
+      //turn on led
+
+      digitalWrite(pin_LED[i], HIGH);
+
+    }
+
+    // Halt PICC
+    mfrc522[i].PICC_HaltA();
+    // Stop encryption on PCD
+    mfrc522[i].PCD_StopCrypto1();
+  }
+
+#ifdef DEBUG
+  // If the changedValue flag has been set, at least one sensor has changed
+  if (changedValue) {
+    // Dump to serial the current state of all sensors
+    for (uint8_t i = 0; i < numReaders; i++) {
+      Serial.print(F("Reader #"));
+      Serial.print(String(i));
+      Serial.print(F(" on Pin #"));
+      Serial.print(String((ssPins[i])));
+      Serial.print(F(" detected tag: "));
+      Serial.println(currentIDs[i]);
+    }
+    Serial.println(F("---"));
+  }
+#endif
+
+  // If the rfidSolved flag is set, all sensors detected the correct ID
+  if (rfidSolved) {
+#ifdef DEBUG
+    // Print debugging message
+    Serial.println(F("RFID Solved!"));
+#endif
+
+    digitalWrite(pinRFID, HIGH);
+    digitalWrite(lockpin, LOW);
+
+    delay(7000);
+    rfidSolved = false;
+  }
+
+}
+
+/**
+   Helper function to return a string ID from byte array
+*/
+String dump_byte_array(byte *buffer, byte bufferSize) {
+  String read_rfid = "";
+  for (byte i = 0; i < bufferSize; i++) {
+    read_rfid = read_rfid + String(buffer[i], HEX);
+  }
+  return read_rfid;
+}
+
+
+/////////////////////////////

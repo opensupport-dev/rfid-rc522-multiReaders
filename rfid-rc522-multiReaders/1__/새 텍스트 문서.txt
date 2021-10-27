@@ -1,0 +1,2 @@
+link1:
+=> https://arduino.stackexchange.com/questions/18313/issue-sharing-miso-with-multiple-rc522-rfid-readers
